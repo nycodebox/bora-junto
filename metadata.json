@@ -1,0 +1,6 @@
+{
+  "name": "BoraJunto",
+  "description": "Da última aula ao seu destino. Juntos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
