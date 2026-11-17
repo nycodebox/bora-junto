@@ -1,0 +1,671 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Security Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedEmail() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string;
+    }
+
+    function isVerifiedAcademicToken() {
+      return isVerifiedEmail()
+        && (
+          request.auth.token.email.matches('^[^@]+@[^@]+\\.[eE][dD][uU]\\.[bB][rR]$')
+          || request.auth.token.email == 'nycolle.santana@ucsal.edu.br'
+        );
+    }
+
+    function isAdminToken() {
+      return isVerifiedEmail()
+        && request.auth.token.email == 'nycolle.santana@ucsal.edu.br';
+    }
+
+    function isAdmin() {
+      return isVerifiedEmail()
+        && (
+          request.auth.token.email == 'nycolle.santana@ucsal.edu.br'
+          || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        );
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() >= 1
+        && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isNotBlocked(uid) {
+      return !exists(/databases/$(database)/documents/users/$(uid))
+        || get(/databases/$(database)/documents/users/$(uid)).data.moderationStatus == 'active';
+    }
+
+    function isGroupMember(groupId) {
+      return isVerifiedAcademicToken()
+        && exists(/databases/$(database)/documents/groups/$(groupId))
+        && (request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberIds);
+    }
+
+    function isGroupLeader(groupId) {
+      return isVerifiedAcademicToken()
+        && exists(/databases/$(database)/documents/groups/$(groupId))
+        && get(/databases/$(database)/documents/groups/$(groupId)).data.leaderId == request.auth.uid;
+    }
+
+    // 3. Schema Validation Blueprints (Anti-Update-Gap)
+
+    function isValidUserPublic(data) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'courseInfo', 'campusId', 'moderationStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'courseInfo', 'campusId', 'moderationStatus', 'moderationReason', 'createdAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.displayName is string && data.displayName.size() >= 2 && data.displayName.size() <= 80
+        && data.courseInfo is string && data.courseInfo.size() >= 2 && data.courseInfo.size() <= 120
+        && data.campusId is string && data.campusId.size() >= 2 && data.campusId.size() <= 64
+        && data.moderationStatus in ['active', 'temporary_block', 'permanent_block']
+        && (!('moderationReason' in data) || (data.moderationReason is string && data.moderationReason.size() <= 400))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivate(data) {
+      return data.keys().hasAll([
+          'uid', 'email', 'defaultDestinationLabel', 'defaultDestinationLat', 'defaultDestinationLng',
+          'defaultClassEndTime', 'lgpdConsentAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'email', 'phone', 'defaultDestinationLabel', 'defaultDestinationLat', 'defaultDestinationLng',
+          'defaultClassEndTime', 'lgpdConsentAt', 'updatedAt'
+        ])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.email is string && data.email.size() >= 6 && data.email.size() <= 160
+        && data.email.matches('^[^@]+@[^@]+\\.[eE][dD][uU]\\.[bB][rR]$')
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 24))
+        && data.defaultDestinationLabel is string && data.defaultDestinationLabel.size() >= 2 && data.defaultDestinationLabel.size() <= 140
+        && data.defaultDestinationLat is number && data.defaultDestinationLat >= -90 && data.defaultDestinationLat <= 90
+        && data.defaultDestinationLng is number && data.defaultDestinationLng >= -180 && data.defaultDestinationLng <= 180
+        && data.defaultClassEndTime is string && data.defaultClassEndTime.size() == 5
+        && data.defaultClassEndTime.matches('^([01]\\d|2[0-3]):[0-5]\\d$')
+        && data.lgpdConsentAt is string && data.lgpdConsentAt.size() >= 10 && data.lgpdConsentAt.size() <= 40
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCampus(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'shortName', 'headerLabel', 'city', 'centerLat', 'centerLng', 'geofenceRadiusMeters'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'shortName', 'headerLabel', 'city', 'centerLat', 'centerLng', 'geofenceRadiusMeters'
+        ])
+        && data.id is string && data.id.size() >= 2 && data.id.size() <= 64
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 120
+        && data.shortName is string && data.shortName.size() >= 2 && data.shortName.size() <= 60
+        && data.headerLabel is string && data.headerLabel.size() >= 2 && data.headerLabel.size() <= 80
+        && data.city is string && data.city.size() >= 2 && data.city.size() <= 60
+        && data.centerLat is number && data.centerLat >= -90 && data.centerLat <= 90
+        && data.centerLng is number && data.centerLng >= -180 && data.centerLng <= 180
+        && data.geofenceRadiusMeters is number && data.geofenceRadiusMeters >= 50 && data.geofenceRadiusMeters <= 5000;
+    }
+
+    function isValidRideGroup(data) {
+      return data.keys().hasAll([
+          'campusId', 'leaderId', 'mode', 'status', 'title', 'departureTime', 'estimatedArrival',
+          'meetingPoint', 'meetingLat', 'meetingLng', 'destinationLabel', 'destinationLat', 'destinationLng',
+          'maxSpots', 'memberIds', 'requiresPayment', 'totalCost', 'recalcVersion', 'scheduledAtMs',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'campusId', 'leaderId', 'mode', 'status', 'title', 'departureTime', 'estimatedArrival',
+          'meetingPoint', 'meetingLat', 'meetingLng', 'destinationLabel', 'destinationLat', 'destinationLng',
+          'maxSpots', 'memberIds', 'requiresPayment', 'totalCost', 'recalcVersion', 'scheduledAtMs',
+          'createdAt', 'updatedAt'
+        ])
+        && data.campusId is string && data.campusId.size() >= 2 && data.campusId.size() <= 64
+        && data.leaderId is string && data.leaderId.size() >= 1 && data.leaderId.size() <= 128
+        && data.mode in ['bando', 'racha', 'carona']
+        && data.status in ['open', 'full', 'in_progress', 'completed', 'cancelled']
+        && data.title is string && data.title.size() >= 2 && data.title.size() <= 60
+        && data.departureTime is string && data.departureTime.size() == 5
+        && data.departureTime.matches('^([01]\\d|2[0-3]):[0-5]\\d$')
+        && data.estimatedArrival is string && data.estimatedArrival.size() == 5
+        && data.estimatedArrival.matches('^([01]\\d|2[0-3]):[0-5]\\d$')
+        && data.meetingPoint is string && data.meetingPoint.size() >= 2 && data.meetingPoint.size() <= 100
+        && data.meetingLat is number && data.meetingLat >= -90 && data.meetingLat <= 90
+        && data.meetingLng is number && data.meetingLng >= -180 && data.meetingLng <= 180
+        && data.destinationLabel is string && data.destinationLabel.size() >= 2 && data.destinationLabel.size() <= 140
+        && data.destinationLat is number && data.destinationLat >= -90 && data.destinationLat <= 90
+        && data.destinationLng is number && data.destinationLng >= -180 && data.destinationLng <= 180
+        && data.maxSpots is number && data.maxSpots >= 2 && data.maxSpots <= 6
+        && data.memberIds is list && data.memberIds.size() >= 1 && data.memberIds.size() <= 6
+        && data.memberIds[0] is string
+        && data.requiresPayment is bool
+        && data.totalCost is number && data.totalCost >= 0 && data.totalCost <= 1000
+        && data.recalcVersion is number && data.recalcVersion >= 1 && data.recalcVersion <= 1000
+        && data.scheduledAtMs is number && data.scheduledAtMs > 0
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupMember(data) {
+      return data.keys().hasAll(['uid', 'name', 'courseInfo', 'role', 'acceptedRecalcVersion', 'joinedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'courseInfo', 'role', 'acceptedRecalcVersion', 'joinedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.name is string && data.name.size() >= 2 && data.name.size() <= 80
+        && data.courseInfo is string && data.courseInfo.size() >= 2 && data.courseInfo.size() <= 120
+        && data.role in ['leader', 'member']
+        && data.acceptedRecalcVersion is number && data.acceptedRecalcVersion >= 1 && data.acceptedRecalcVersion <= 1000
+        && data.joinedAt is timestamp;
+    }
+
+    function isValidGroupPayment(data) {
+      return data.keys().hasAll([
+          'uid', 'leaderId', 'amountDue', 'pixPayload', 'confirmationMethod', 'paymentConfirmed', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'leaderId', 'amountDue', 'pixPayload', 'confirmationMethod', 'receiptStoragePath',
+          'receiptPreviewDataUrl', 'receiptExpiresAt', 'paymentConfirmed', 'confirmedByLeaderId', 'updatedAt'
+        ])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.leaderId is string && data.leaderId.size() >= 1 && data.leaderId.size() <= 128
+        && data.amountDue is number && data.amountDue >= 0 && data.amountDue <= 1000
+        && data.pixPayload is string && data.pixPayload.size() <= 600
+        && data.confirmationMethod in ['pending', 'receipt_upload', 'visual_leader']
+        && (!('receiptStoragePath' in data) || (data.receiptStoragePath is string && data.receiptStoragePath.size() <= 300))
+        && (!('receiptPreviewDataUrl' in data) || (data.receiptPreviewDataUrl is string && data.receiptPreviewDataUrl.size() <= 200000))
+        && (!('receiptExpiresAt' in data) || (data.receiptExpiresAt is string && data.receiptExpiresAt.size() <= 40))
+        && data.paymentConfirmed is bool
+        && (!('confirmedByLeaderId' in data) || (data.confirmedByLeaderId is string && data.confirmedByLeaderId.size() <= 128))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidLiveLocation(data) {
+      return data.keys().hasAll(['uid', 'lat', 'lng', 'sharingEnabled', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'lat', 'lng', 'sharingEnabled', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.lat is number && data.lat >= -90 && data.lat <= 90
+        && data.lng is number && data.lng >= -180 && data.lng <= 180
+        && data.sharingEnabled is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidGroupMessage(data) {
+      return data.keys().hasAll(['senderId', 'senderName', 'text', 'createdAt'])
+        && data.keys().hasOnly(['senderId', 'senderName', 'text', 'createdAt'])
+        && data.senderId is string && data.senderId.size() >= 1 && data.senderId.size() <= 128
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 80
+        && data.text is string && data.text.size() >= 1 && data.text.size() <= 500
+        && data.createdAt is timestamp;
+    }
+
+    function isValidRating(data) {
+      return data.keys().hasAll(['groupId', 'fromUid', 'score', 'safetyOk', 'createdAt'])
+        && data.keys().hasOnly(['groupId', 'fromUid', 'score', 'safetyOk', 'comment', 'createdAt'])
+        && data.groupId is string && data.groupId.size() >= 1 && data.groupId.size() <= 128
+        && data.fromUid is string && data.fromUid.size() >= 1 && data.fromUid.size() <= 128
+        && data.score is number && data.score >= 1 && data.score <= 5
+        && data.safetyOk is bool
+        && (!('comment' in data) || (data.comment is string && data.comment.size() <= 500))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidReport(data) {
+      return data.keys().hasAll([
+          'groupId', 'reporterUid', 'reporterName', 'reportedUid', 'reportedName',
+          'category', 'priority', 'description', 'status', 'slaDeadlineAt', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'groupId', 'reporterUid', 'reporterName', 'reportedUid', 'reportedName',
+          'category', 'priority', 'description', 'status', 'resolutionAction',
+          'moderatorNotes', 'contestNote', 'slaDeadlineAt', 'createdAt', 'updatedAt'
+        ])
+        && data.groupId is string && data.groupId.size() >= 1 && data.groupId.size() <= 128
+        && data.reporterUid is string && data.reporterUid.size() >= 1 && data.reporterUid.size() <= 128
+        && data.reporterName is string && data.reporterName.size() >= 1 && data.reporterName.size() <= 80
+        && data.reportedUid is string && data.reportedUid.size() >= 1 && data.reportedUid.size() <= 128
+        && data.reportedName is string && data.reportedName.size() >= 1 && data.reportedName.size() <= 80
+        && data.category in ['inappropriate_behavior', 'immediate_risk', 'fraud', 'rule_violation']
+        && data.priority in ['normal', 'immediate_risk']
+        && data.description is string && data.description.size() >= 5 && data.description.size() <= 1000
+        && data.status in ['pendente', 'em_analise', 'resolvida', 'arquivada']
+        && (!('resolutionAction' in data) || data.resolutionAction in ['none', 'warning', 'temporary_block', 'permanent_block', 'overturned'])
+        && (!('moderatorNotes' in data) || (data.moderatorNotes is string && data.moderatorNotes.size() <= 1000))
+        && (!('contestNote' in data) || (data.contestNote is string && data.contestNote.size() <= 1000))
+        && data.slaDeadlineAt is string && data.slaDeadlineAt.size() >= 10 && data.slaDeadlineAt.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidModerationLog(data) {
+      return data.keys().hasAll([
+          'reportId', 'moderatorUid', 'moderatorEmail', 'previousStatus', 'newStatus', 'actionTaken', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'reportId', 'moderatorUid', 'moderatorEmail', 'previousStatus', 'newStatus', 'actionTaken', 'createdAt'
+        ])
+        && data.reportId is string && data.reportId.size() >= 1 && data.reportId.size() <= 128
+        && data.moderatorUid is string && data.moderatorUid.size() >= 1 && data.moderatorUid.size() <= 128
+        && data.moderatorEmail is string && data.moderatorEmail.size() >= 5 && data.moderatorEmail.size() <= 160
+        && data.previousStatus is string && data.previousStatus.size() >= 2 && data.previousStatus.size() <= 40
+        && data.newStatus is string && data.newStatus.size() >= 2 && data.newStatus.size() <= 40
+        && data.actionTaken is string && data.actionTaken.size() >= 2 && data.actionTaken.size() <= 400
+        && data.createdAt is timestamp;
+    }
+
+    // 4. Collection Rules
+
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdminToken());
+
+      allow create: if isVerifiedAcademicToken()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPublic(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().moderationStatus == 'active'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && isValidUserPublic(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            isVerifiedAcademicToken()
+            && isOwner(userId)
+            && incoming().moderationStatus == existing().moderationStatus
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'courseInfo', 'campusId', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+
+      match /private/{docId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isSignedIn() && ((isOwner(userId) && resource.data.uid == request.auth.uid) || isAdminToken());
+
+        allow create: if isVerifiedAcademicToken()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isOwner(userId)
+          && docId == 'info'
+          && isValidUserPrivate(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().email == request.auth.token.email
+          && incoming().updatedAt == request.time;
+
+        allow update: if isVerifiedAcademicToken()
+          && isValidId(userId)
+          && isValidId(docId)
+          && isOwner(userId)
+          && docId == 'info'
+          && isValidUserPrivate(incoming())
+          && incoming().uid == existing().uid
+          && incoming().email == existing().email
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'phone', 'defaultDestinationLabel', 'defaultDestinationLat', 'defaultDestinationLng',
+            'defaultClassEndTime', 'lgpdConsentAt', 'updatedAt'
+          ]);
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    match /campuses/{campusId} {
+      allow get: if isSignedIn() && isValidId(campusId);
+      allow list: if isSignedIn() && resource.data.city == 'Salvador';
+
+      allow create: if (isVerifiedAcademicToken() || isAdmin())
+        && isValidId(campusId)
+        && isValidCampus(incoming())
+        && incoming().id == campusId;
+
+      allow update: if isAdmin()
+        && isValidId(campusId)
+        && isValidCampus(incoming())
+        && incoming().id == existing().id;
+
+      allow delete: if isAdmin() && isValidId(campusId);
+    }
+
+    match /groups/{groupId} {
+      allow get: if isVerifiedAcademicToken() && isValidId(groupId);
+      allow list: if isVerifiedAcademicToken()
+        && (
+          resource.data.leaderId == request.auth.uid
+          || (request.auth.uid in resource.data.memberIds)
+          || resource.data.campusId is string
+        );
+
+      allow create: if isVerifiedAcademicToken()
+        && isValidId(groupId)
+        && isValidRideGroup(incoming())
+        && isNotBlocked(request.auth.uid)
+        && incoming().leaderId == request.auth.uid
+        && incoming().status == 'open'
+        && incoming().recalcVersion == 1
+        && incoming().memberIds.size() == 1
+        && incoming().memberIds[0] == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/campuses/$(incoming().campusId));
+
+      allow update: if isVerifiedAcademicToken()
+        && isValidId(groupId)
+        && isValidRideGroup(incoming())
+        && incoming().campusId == existing().campusId
+        && incoming().leaderId == existing().leaderId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().status != 'completed'
+            && existing().status != 'cancelled'
+            && (
+              // Action: Join group
+              (
+                isNotBlocked(request.auth.uid)
+                && existing().status == 'open'
+                && !(request.auth.uid in existing().memberIds)
+                && (request.auth.uid in incoming().memberIds)
+                && incoming().memberIds.size() == existing().memberIds.size() + 1
+                && incoming().memberIds.size() <= existing().maxSpots
+                && incoming().status in ['open', 'full']
+                && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'status', 'updatedAt'])
+              )
+              // Action: Member leave group before trip starts
+              || (
+                existing().status in ['open', 'full']
+                && request.auth.uid != existing().leaderId
+                && (request.auth.uid in existing().memberIds)
+                && !(request.auth.uid in incoming().memberIds)
+                && incoming().memberIds.size() == existing().memberIds.size() - 1
+                && incoming().status == 'open'
+                && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'status', 'updatedAt'])
+              )
+              // Action: Leader starts, completes, or cancels ride
+              || (
+                existing().leaderId == request.auth.uid
+                && incoming().status in ['open', 'full', 'in_progress', 'completed', 'cancelled']
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+              )
+              // Action: Leader removes member (RF09) & bumps recalcVersion (RF10)
+              || (
+                existing().leaderId == request.auth.uid
+                && existing().status in ['open', 'full']
+                && incoming().memberIds.size() < existing().memberIds.size()
+                && incoming().maxSpots >= incoming().memberIds.size()
+                && incoming().maxSpots <= existing().maxSpots
+                && incoming().recalcVersion == existing().recalcVersion + 1
+                && incoming().status in ['open', 'full']
+                && incoming().diff(existing()).affectedKeys().hasOnly(['memberIds', 'maxSpots', 'status', 'recalcVersion', 'updatedAt'])
+              )
+            )
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(groupId);
+
+      match /members/{memberId} {
+        allow get: if isVerifiedAcademicToken() && isValidId(groupId) && isValidId(memberId);
+        allow list: if isVerifiedAcademicToken()
+          && resource.data.role in ['leader', 'member'];
+
+        allow create: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && memberId == request.auth.uid
+          && isValidGroupMember(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().joinedAt == request.time
+          && existsAfter(/databases/$(database)/documents/groups/$(groupId))
+          && (request.auth.uid in getAfter(/databases/$(database)/documents/groups/$(groupId)).data.memberIds);
+
+        allow update: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && memberId == request.auth.uid
+          && isValidGroupMember(incoming())
+          && incoming().uid == existing().uid
+          && incoming().joinedAt == existing().joinedAt
+          && isGroupMember(groupId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['acceptedRecalcVersion']);
+
+        allow delete: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && (
+            memberId == request.auth.uid
+            || isGroupLeader(groupId)
+            || isAdmin()
+          );
+      }
+
+      match /payments/{memberId} {
+        allow get: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && (memberId == request.auth.uid || isGroupMember(groupId) || isAdmin());
+
+        allow list: if isVerifiedAcademicToken()
+          && (resource.data.uid == request.auth.uid || resource.data.leaderId == request.auth.uid || isAdminToken());
+
+        allow create: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && memberId == request.auth.uid
+          && isValidGroupPayment(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().updatedAt == request.time
+          && existsAfter(/databases/$(database)/documents/groups/$(groupId))
+          && incoming().leaderId == getAfter(/databases/$(database)/documents/groups/$(groupId)).data.leaderId;
+
+        allow update: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && isValidGroupPayment(incoming())
+          && incoming().uid == existing().uid
+          && incoming().leaderId == existing().leaderId
+          && incoming().updatedAt == request.time
+          && (
+            // Payer submits receipt (RF07)
+            (
+              memberId == request.auth.uid
+              && incoming().confirmationMethod in ['receipt_upload', 'pending']
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'confirmationMethod', 'receiptStoragePath', 'receiptPreviewDataUrl',
+                'receiptExpiresAt', 'paymentConfirmed', 'updatedAt'
+              ])
+            )
+            // Leader confirms visually or recalculates split (RF07/RF10)
+            || (
+              isGroupLeader(groupId)
+              && incoming().diff(existing()).affectedKeys().hasOnly([
+                'amountDue', 'pixPayload', 'confirmationMethod', 'paymentConfirmed',
+                'confirmedByLeaderId', 'receiptPreviewDataUrl', 'receiptExpiresAt', 'updatedAt'
+              ])
+            )
+          );
+
+        allow delete: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && (memberId == request.auth.uid || isGroupLeader(groupId) || isAdmin());
+      }
+
+      match /liveLocations/{memberId} {
+        allow get: if isValidId(groupId) && isValidId(memberId) && (isGroupMember(groupId) || isAdmin());
+        allow list: if isVerifiedAcademicToken()
+          && (isGroupMember(groupId) || isAdmin())
+          && resource.data.sharingEnabled in [true, false];
+
+        allow create: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && memberId == request.auth.uid
+          && isValidLiveLocation(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().updatedAt == request.time
+          && get(/databases/$(database)/documents/groups/$(groupId)).data.status == 'in_progress'
+          && isGroupMember(groupId);
+
+        allow update: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && memberId == request.auth.uid
+          && isValidLiveLocation(incoming())
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && isGroupMember(groupId)
+          && (
+            get(/databases/$(database)/documents/groups/$(groupId)).data.status == 'in_progress'
+            || incoming().sharingEnabled == false
+          )
+          && incoming().diff(existing()).affectedKeys().hasOnly(['lat', 'lng', 'sharingEnabled', 'updatedAt']);
+
+        allow delete: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(memberId)
+          && (memberId == request.auth.uid || isGroupLeader(groupId) || isAdmin());
+      }
+
+      match /messages/{messageId} {
+        allow get: if isValidId(groupId) && isValidId(messageId) && (isGroupMember(groupId) || isAdmin());
+        allow list: if isVerifiedAcademicToken() && (isGroupMember(groupId) || isAdmin());
+
+        allow create: if isVerifiedAcademicToken()
+          && isValidId(groupId)
+          && isValidId(messageId)
+          && isValidGroupMessage(incoming())
+          && incoming().senderId == request.auth.uid
+          && incoming().createdAt == request.time
+          && isGroupMember(groupId);
+
+        allow update, delete: if isAdmin() && isValidId(groupId) && isValidId(messageId);
+      }
+    }
+
+    match /ratings/{ratingId} {
+      allow get: if isVerifiedAcademicToken()
+        && isValidId(ratingId)
+        && (existing().fromUid == request.auth.uid || isAdmin());
+
+      allow list: if isVerifiedAcademicToken()
+        && (resource.data.fromUid == request.auth.uid || isAdminToken());
+
+      allow create: if isVerifiedAcademicToken()
+        && isValidId(ratingId)
+        && isValidRating(incoming())
+        && incoming().fromUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/groups/$(incoming().groupId))
+        && (request.auth.uid in get(/databases/$(database)/documents/groups/$(incoming().groupId)).data.memberIds);
+
+      allow update, delete: if false;
+    }
+
+    match /reports/{reportId} {
+      allow get: if isSignedIn()
+        && isValidId(reportId)
+        && (
+          existing().reporterUid == request.auth.uid
+          || existing().reportedUid == request.auth.uid
+          || isAdmin()
+        );
+
+      allow list: if isSignedIn()
+        && (
+          resource.data.reporterUid == request.auth.uid
+          || resource.data.reportedUid == request.auth.uid
+          || isAdminToken()
+        );
+
+      allow create: if isVerifiedAcademicToken()
+        && isValidId(reportId)
+        && isValidReport(incoming())
+        && incoming().reporterUid == request.auth.uid
+        && incoming().status == 'pendente'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/groups/$(incoming().groupId));
+
+      allow update: if isSignedIn()
+        && isValidId(reportId)
+        && isValidReport(incoming())
+        && incoming().groupId == existing().groupId
+        && incoming().reporterUid == existing().reporterUid
+        && incoming().reportedUid == existing().reportedUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'resolutionAction', 'moderatorNotes', 'updatedAt'
+            ])
+          )
+          || (
+            isVerifiedAcademicToken()
+            && existing().reportedUid == request.auth.uid
+            && existing().status in ['pendente', 'em_analise', 'resolvida']
+            && incoming().status == existing().status
+            && incoming().diff(existing()).affectedKeys().hasOnly(['contestNote', 'updatedAt'])
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /moderationLogs/{logId} {
+      allow get: if isAdmin() && isValidId(logId);
+      allow list: if isAdminToken();
+
+      allow create: if isAdmin()
+        && isValidId(logId)
+        && isValidModerationLog(incoming())
+        && incoming().moderatorUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && exists(/databases/$(database)/documents/reports/$(incoming().reportId));
+
+      allow update, delete: if false;
+    }
+  }
+}

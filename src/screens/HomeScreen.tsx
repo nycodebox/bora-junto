@@ -1,36 +1,70 @@
 import React, { useState } from 'react';
-import { ChevronRight, Clock, Home, LogOut, MapPin, ShieldCheck, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronRight,
+  Clock,
+  Download,
+  Home,
+  LogOut,
+  MapPin,
+  Search,
+  ShieldCheck,
+  Trash2,
+  Users,
+} from 'lucide-react';
 import { BottomTabBar, BrandHeader, StatusBar } from '../components/MobileShell';
 import { ModalSheet } from '../components/ModalSheet';
-import { CarFrontIcon, PrimaryButton, StatusBadge, WalkingIcon } from '../components/ReusableUI';
+import { LocationSearchInput } from '../components/LocationSearchInput';
+import {
+  CarFrontIcon,
+  PrimaryButton,
+  StatusBadge,
+  WalkingIcon,
+} from '../components/ReusableUI';
 import { useBoraJunto } from '../context/BoraJuntoContext';
 import {
-  CAMPUS_HEADER,
-  CAMPUS_ORIGIN,
   CLASS_END_TIME_OPTIONS,
-  DESTINATION_OPTIONS,
-} from '../data/mockData';
-import { TransportMode } from '../types';
+  SALVADOR_CAMPUSES,
+} from '../utils/geo';
+import { GeoLocation, TransportMode } from '../types';
 
 export const HomeScreen: React.FC = () => {
   const {
     userName,
     userEmail,
+    userProfile,
+    isAuthenticated,
+    isAdmin,
+    setShowAdminView,
+    currentCampus,
     destination,
-    setDestination,
+    destinationLocation,
+    setDestinationWithCoords,
     classEndTime,
     setClassEndTime,
     selectedMode,
     setSelectedMode,
     navigateTo,
-    logoutSimulated,
+    logoutAcademic,
+    updateUserPreferences,
+    exportMyLgpdData,
+    deleteMyAccountData,
+    myReportsAgainstMe,
+    contestModerationReport,
   } = useBoraJunto();
 
   const [activeModal, setActiveModal] = useState<
-    null | 'destination' | 'time' | 'notifications' | 'profile'
+    null | 'destination' | 'time' | 'notifications' | 'profile' | 'lgpd' | 'contest'
   >(null);
   const [draftDestination, setDraftDestination] = useState(destination);
+  const [draftLocation, setDraftLocation] = useState<GeoLocation | null>(destinationLocation);
+  const [destinationError, setDestinationError] = useState<string | null>(null);
+
   const [draftTime, setDraftTime] = useState(classEndTime);
+  const [exportedJson, setExportedJson] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [contestText, setContestText] = useState('');
+  const [contestSent, setContestSent] = useState(false);
 
   const modes: Array<{
     id: TransportMode;
@@ -60,6 +94,8 @@ export const HomeScreen: React.FC = () => {
 
   const openDestinationModal = () => {
     setDraftDestination(destination);
+    setDraftLocation(destinationLocation);
+    setDestinationError(null);
     setActiveModal('destination');
   };
 
@@ -70,10 +106,19 @@ export const HomeScreen: React.FC = () => {
 
   const handleConfirmDestination = (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = draftDestination.trim();
-    if (clean) {
-      setDestination(clean);
+    if (!draftLocation) {
+      setDestinationError(
+        'Selecione uma das sugestões da lista para confirmar as coordenadas do destino.'
+      );
+      return;
     }
+    setDestinationError(null);
+    setDestinationWithCoords(
+      draftLocation.name || draftLocation.label,
+      draftLocation.lat,
+      draftLocation.lng,
+      draftLocation
+    );
     setActiveModal(null);
   };
 
@@ -84,6 +129,8 @@ export const HomeScreen: React.FC = () => {
     }
     setActiveModal(null);
   };
+
+  const latestModerationReport = myReportsAgainstMe[0];
 
   return (
     <div className="h-full flex flex-col justify-between bg-[#F8F9FA] dark:bg-[#12151E] text-[#102536] dark:text-white">
@@ -102,11 +149,29 @@ export const HomeScreen: React.FC = () => {
             Encontre companhia para a volta de hoje.
           </p>
 
+          {userProfile && userProfile.moderationStatus !== 'active' && (
+            <button
+              type="button"
+              onClick={() => setActiveModal('contest')}
+              className="mb-3 rounded-[16px] bg-[#FDEAF1] dark:bg-[#3B2034] px-4 py-3 text-left flex items-center gap-3 cursor-pointer"
+            >
+              <AlertTriangle className="w-5 h-5 text-[#C51557] dark:text-[#FF6A9B] shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-bold text-[#C51557] dark:text-[#FF6A9B]">
+                  Conta com restrição preventiva
+                </p>
+                <p className="text-[11.5px] text-[#596579] dark:text-[#CBD5E1] truncate">
+                  Toque para ver o motivo ou enviar contestação (RF13)
+                </p>
+              </div>
+            </button>
+          )}
+
           {/* Main Trip Configuration Card */}
           <div className="rounded-[24px] bg-white dark:bg-[#1E2230] p-[18px] figma-card-shadow border border-[#EDF1F6] dark:border-[#272D3F] mb-6">
             <div className="flex items-center justify-between mb-3.5">
               <span className="text-[11.5px] font-bold tracking-[0.05em] uppercase text-[#596579] dark:text-[#A8B3C7]">
-                {CAMPUS_HEADER}
+                {currentCampus.headerLabel}
               </span>
               <ShieldCheck
                 className="w-[20px] h-[20px] text-[#137A59] dark:text-[#4ADE80]"
@@ -125,14 +190,14 @@ export const HomeScreen: React.FC = () => {
                   Saindo do seu campus
                 </p>
                 <p className="text-[15.5px] font-bold text-[#102536] dark:text-white mt-0.5">
-                  {CAMPUS_ORIGIN}
+                  {currentCampus.name}
                 </p>
               </div>
             </div>
 
             <div className="h-px bg-[#E8EDF3] dark:bg-[#2C3245] my-3.5" />
 
-            {/* Destination (editable) */}
+            {/* Destination (editable + Nominatim Salvador search) */}
             <button
               type="button"
               onClick={openDestinationModal}
@@ -227,8 +292,10 @@ export const HomeScreen: React.FC = () => {
           </div>
 
           <div className="mt-auto">
-            <PrimaryButton onClick={() => navigateTo('groups')}>
-              Encontrar meu grupo
+            <PrimaryButton
+              onClick={() => navigateTo(isAuthenticated ? 'groups' : 'login')}
+            >
+              {isAuthenticated ? 'Encontrar meu grupo' : 'Entrar com .edu.br'}
             </PrimaryButton>
           </div>
         </div>
@@ -240,46 +307,55 @@ export const HomeScreen: React.FC = () => {
         onProfileClick={() => setActiveModal('profile')}
       />
 
-      {/* Destination Picker Modal */}
+      {/* Destination Picker Modal with OpenRouteService / Pelias Autocomplete */}
       <ModalSheet
         open={activeModal === 'destination'}
         onClose={() => setActiveModal(null)}
         title="Seu destino"
-        subtitle="Escolha ou digite o bairro de destino"
+        subtitle="Pesquise por bairro, rua, ponto de referência ou município"
       >
         <form onSubmit={handleConfirmDestination} className="space-y-4">
-          <div className="h-[50px] px-4 rounded-[14px] bg-[#EEF2F6] dark:bg-[#282E40] flex items-center gap-3">
-            <Home className="w-[18px] h-[18px] text-[#596579] dark:text-[#94A3B8] shrink-0" />
-            <input
-              type="text"
-              value={draftDestination}
-              onChange={(e) => setDraftDestination(e.target.value)}
-              placeholder="Ex: Saúde, São Paulo"
-              className="w-full bg-transparent text-[14.5px] font-semibold text-[#102536] dark:text-white focus:outline-none"
-            />
-          </div>
+          <LocationSearchInput
+            placeholder="Ex: Pituba, Paralela, Shopping da Bahia..."
+            value={draftDestination}
+            selectedLocation={draftLocation}
+            onTextChange={(val) => {
+              setDraftDestination(val);
+              if (destinationError) setDestinationError(null);
+              if (
+                draftLocation &&
+                draftLocation.name !== val &&
+                draftLocation.label !== val
+              ) {
+                setDraftLocation(null);
+              }
+            }}
+            onSelectLocation={(loc) => {
+              setDraftLocation(loc);
+              setDraftDestination(loc.name || loc.label);
+              setDestinationError(null);
+            }}
+            onClear={() => {
+              setDraftDestination('');
+              setDraftLocation(null);
+              setDestinationError(null);
+            }}
+            helperText="Digite e selecione explicitamente uma sugestão em Salvador ou RMS."
+          />
 
-          <div className="flex flex-wrap gap-2">
-            {DESTINATION_OPTIONS.map((opt) => {
-              const active = draftDestination === opt;
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => setDraftDestination(opt)}
-                  className={`px-3 py-2 rounded-[10px] text-[12.5px] font-semibold transition-colors cursor-pointer ${
-                    active
-                      ? 'bg-[#E1F7FC] dark:bg-[#133342] text-[#102536] dark:text-white border border-[#00D2FF]'
-                      : 'bg-[#F8F9FA] dark:bg-[#282E40] text-[#596579] dark:text-[#A8B3C7]'
-                  }`}
-                >
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
+          {destinationError && (
+            <p className="text-[12px] font-semibold text-[#C51557] dark:text-[#FF6A9B] px-1">
+              {destinationError}
+            </p>
+          )}
 
-          <PrimaryButton type="submit">Confirmar destino</PrimaryButton>
+          <PrimaryButton
+            type="submit"
+            disabled={!draftLocation}
+            className={!draftLocation ? 'opacity-60 cursor-not-allowed' : ''}
+          >
+            Confirmar destino
+          </PrimaryButton>
         </form>
       </ModalSheet>
 
@@ -327,25 +403,48 @@ export const HomeScreen: React.FC = () => {
         </form>
       </ModalSheet>
 
-      {/* Notifications Provisional Modal */}
+      {/* Notifications Modal */}
       <ModalSheet
         open={activeModal === 'notifications'}
         onClose={() => setActiveModal(null)}
-        title="Notificações"
-        subtitle="Interação provisória de protótipo"
+        title="Avisos da comunidade"
+        subtitle="Status de verificação e moderação"
       >
-        <p className="text-[14px] leading-[1.5] text-[#596579] dark:text-[#A8B3C7] mb-5">
-          O sistema de notificações em tempo real não faz parte desta etapa do protótipo. Alertas sobre entrada de colegas no grupo e avisos de saída aparecerão aqui futuramente.
-        </p>
+        <div className="space-y-2.5 mb-4">
+          <div className="rounded-[14px] bg-[#E5F6EF] dark:bg-[#18392F] px-4 py-3">
+            <p className="text-[13px] font-bold text-[#137A59] dark:text-[#66DBB1]">
+              {isAuthenticated
+                ? 'Vínculo acadêmico .edu.br verificado'
+                : 'Aguardando login institucional .edu.br'}
+            </p>
+            <p className="text-[12px] text-[#596579] dark:text-[#A8B3C7] mt-0.5">
+              Base geográfica ativa: Salvador / RMS.
+            </p>
+          </div>
+          {latestModerationReport && (
+            <button
+              type="button"
+              onClick={() => setActiveModal('contest')}
+              className="w-full text-left rounded-[14px] bg-[#FDEAF1] dark:bg-[#3B2034] px-4 py-3 cursor-pointer"
+            >
+              <p className="text-[13px] font-bold text-[#C51557] dark:text-[#FF6A9B]">
+                Registro de moderação: {latestModerationReport.status}
+              </p>
+              <p className="text-[12px] text-[#596579] dark:text-[#CBD5E1] mt-0.5">
+                Toque para visualizar detalhes ou contestar.
+              </p>
+            </button>
+          )}
+        </div>
         <PrimaryButton onClick={() => setActiveModal(null)}>Fechar</PrimaryButton>
       </ModalSheet>
 
-      {/* Provisional Profile Modal */}
+      {/* Academic Profile & LGPD Modal */}
       <ModalSheet
         open={activeModal === 'profile'}
         onClose={() => setActiveModal(null)}
         title="Perfil acadêmico"
-        subtitle="Visualização provisória (sem tela dedicada no protótipo)"
+        subtitle="Dados institucionais e privacidade (LGPD)"
       >
         <div className="rounded-[18px] bg-[#F8F9FA] dark:bg-[#282E40] p-4 mb-4 space-y-2">
           <div className="flex items-center justify-between gap-2">
@@ -353,26 +452,209 @@ export const HomeScreen: React.FC = () => {
               {userName}
             </span>
             <StatusBadge variant="green" className="px-3 py-[5px] rounded-[8px]">
-              Verificada
+              {isAuthenticated ? 'Verificado .edu.br' : 'Visitante'}
             </StatusBadge>
           </div>
-          <p className="text-[13px] text-[#596579] dark:text-[#A8B3C7]">{userEmail}</p>
+          <p className="text-[13px] text-[#596579] dark:text-[#A8B3C7]">
+            {userEmail || 'Não autenticado'}
+          </p>
           <p className="text-[12.5px] font-medium text-[#102536] dark:text-[#CBD5E1]">
-            {CAMPUS_ORIGIN} · Destino: {destination}
+            {userProfile?.courseInfo || 'Curso não informado'}
           </p>
         </div>
 
+        {isAuthenticated && (
+          <div className="mb-4">
+            <label className="block text-[12px] font-bold text-[#596579] dark:text-[#A8B3C7] mb-1.5">
+              Campus em Salvador
+            </label>
+            <select
+              value={currentCampus.id}
+              onChange={(e) => {
+                void updateUserPreferences({ campusId: e.target.value });
+              }}
+              className="w-full h-[44px] px-3 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[13px] font-semibold text-[#102536] dark:text-white focus:outline-none"
+            >
+              {SALVADOR_CAMPUSES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="space-y-2.5 mb-3">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveModal(null);
+                setShowAdminView(true);
+              }}
+              className="w-full h-[46px] rounded-[14px] bg-[#E1F7FC] dark:bg-[#133342] text-[#102536] dark:text-[#7AE4FF] font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Área Administrativa de Moderação
+            </button>
+          )}
+
+          {isAuthenticated && (
+            <button
+              type="button"
+              onClick={() => {
+                setExportedJson(null);
+                setConfirmDelete(false);
+                setActiveModal('lgpd');
+              }}
+              className="w-full h-[46px] rounded-[14px] bg-[#EEF2F6] dark:bg-[#282E40] text-[#102536] dark:text-white font-bold text-[14px] cursor-pointer"
+            >
+              Meus dados e Privacidade (LGPD)
+            </button>
+          )}
+
+          {isAuthenticated ? (
+            <button
+              type="button"
+              onClick={() => {
+                setActiveModal(null);
+                void logoutAcademic();
+              }}
+              className="w-full h-[46px] rounded-[14px] bg-[#FDEAF1] dark:bg-[#3B2034] text-[#C51557] dark:text-[#FF6A9B] font-bold text-[14px] flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              Sair da conta
+            </button>
+          ) : (
+            <PrimaryButton
+              onClick={() => {
+                setActiveModal(null);
+                navigateTo('login');
+              }}
+            >
+              Entrar com conta acadêmica
+            </PrimaryButton>
+          )}
+        </div>
+      </ModalSheet>
+
+      {/* LGPD Data Export & Deletion Modal */}
+      <ModalSheet
+        open={activeModal === 'lgpd'}
+        onClose={() => setActiveModal(null)}
+        title="Privacidade e LGPD"
+        subtitle="Transparência, portabilidade e exclusão de dados"
+      >
+        <p className="text-[13px] leading-[1.5] text-[#596579] dark:text-[#A8B3C7] mb-3">
+          Seus dados acadêmicos privados ficam isolados em subcoleção protegida. Comprovantes Pix são removidos após 7 dias (RNF01) e sua localização em tempo real cessa ao concluir a corrida (RF04).
+        </p>
+
         <button
           type="button"
-          onClick={() => {
-            setActiveModal(null);
-            logoutSimulated();
-          }}
-          className="w-full h-[48px] rounded-[14px] bg-[#FDEAF1] dark:bg-[#3B2034] text-[#C51557] dark:text-[#FF6A9B] font-bold text-[14.5px] flex items-center justify-center gap-2 cursor-pointer mb-2"
+          onClick={() => setExportedJson(exportMyLgpdData())}
+          className="w-full h-[44px] rounded-[12px] bg-[#E1F7FC] dark:bg-[#133342] text-[#102536] dark:text-[#7AE4FF] font-bold text-[13.5px] flex items-center justify-center gap-2 mb-3 cursor-pointer"
         >
-          <LogOut className="w-4 h-4" />
-          Sair da conta simulada
+          <Download className="w-4 h-4" />
+          Exportar meus dados (JSON)
         </button>
+
+        {exportedJson && (
+          <pre className="rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] p-3 text-[11px] max-h-[140px] overflow-auto mb-3 text-[#102536] dark:text-[#E2E8F0]">
+            {exportedJson}
+          </pre>
+        )}
+
+        {!confirmDelete ? (
+          <button
+            type="button"
+            onClick={() => setConfirmDelete(true)}
+            className="w-full h-[44px] rounded-[12px] bg-[#FDEAF1] dark:bg-[#3B2034] text-[#C51557] dark:text-[#FF6A9B] font-bold text-[13.5px] flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Trash2 className="w-4 h-4" />
+            Excluir minha conta e dados
+          </button>
+        ) : (
+          <div className="rounded-[14px] bg-[#FDEAF1] dark:bg-[#3B2034] p-3.5 space-y-2.5">
+            <p className="text-[12.5px] font-semibold text-[#C51557] dark:text-[#FF6A9B]">
+              Confirmar exclusão permanente dos seus dados pessoais e acesso?
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 h-[40px] rounded-[10px] bg-white dark:bg-[#1E2230] text-[13px] font-bold cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setActiveModal(null);
+                  await deleteMyAccountData();
+                }}
+                className="flex-1 h-[40px] rounded-[10px] bg-[#C51557] text-white text-[13px] font-bold cursor-pointer"
+              >
+                Confirmar exclusão
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalSheet>
+
+      {/* Moderation Contestation Modal (RF13) */}
+      <ModalSheet
+        open={activeModal === 'contest'}
+        onClose={() => setActiveModal(null)}
+        title="Contestação de moderação"
+        subtitle="Direito de defesa e revisão administrativa (RF13)"
+      >
+        {latestModerationReport ? (
+          <div className="space-y-3">
+            <div className="rounded-[14px] bg-[#EEF2F6] dark:bg-[#282E40] p-3.5 space-y-1">
+              <p className="text-[12px] font-bold text-[#102536] dark:text-white">
+                Status: {latestModerationReport.status} · Ação:{' '}
+                {latestModerationReport.resolutionAction || 'em análise'}
+              </p>
+              {userProfile?.moderationReason && (
+                <p className="text-[12.5px] text-[#596579] dark:text-[#A8B3C7]">
+                  Justificativa: {userProfile.moderationReason}
+                </p>
+              )}
+            </div>
+
+            {contestSent || latestModerationReport.contestNote ? (
+              <div className="rounded-[12px] bg-[#E5F6EF] dark:bg-[#18392F] text-[#137A59] dark:text-[#66DBB1] p-3 text-[12.5px] font-semibold">
+                Contestação registrada: {latestModerationReport.contestNote || contestText}
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={contestText}
+                  onChange={(e) => setContestText(e.target.value)}
+                  rows={3}
+                  placeholder="Explique seu lado dos fatos para reavaliação da moderação..."
+                  className="w-full p-3 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[13.5px] text-[#102536] dark:text-white focus:outline-none"
+                />
+                <PrimaryButton
+                  onClick={async () => {
+                    if (contestText.trim().length < 5) return;
+                    await contestModerationReport(
+                      latestModerationReport.id,
+                      contestText
+                    );
+                    setContestSent(true);
+                  }}
+                >
+                  Enviar contestação
+                </PrimaryButton>
+              </>
+            )}
+          </div>
+        ) : (
+          <p className="text-[13.5px] text-[#596579] dark:text-[#A8B3C7]">
+            Nenhuma ocorrência de moderação pendente.
+          </p>
+        )}
       </ModalSheet>
     </div>
   );

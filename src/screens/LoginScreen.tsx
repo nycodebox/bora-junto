@@ -1,24 +1,71 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react';
+import {
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Lock,
+  Mail,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react';
 import { BrandHeader, HomeIndicator, StatusBar } from '../components/MobileShell';
 import { ModalSheet } from '../components/ModalSheet';
+import { LocationSearchInput } from '../components/LocationSearchInput';
 import { PrimaryButton } from '../components/ReusableUI';
 import { useBoraJunto } from '../context/BoraJuntoContext';
+import {
+  CLASS_END_TIME_OPTIONS,
+  SALVADOR_CAMPUSES,
+} from '../utils/geo';
+import { GeoLocation } from '../types';
 
 export const LoginScreen: React.FC = () => {
-  const { loginSimulated } = useBoraJunto();
+  const {
+    loginAcademic,
+    signUpAcademic,
+    resendVerificationEmail,
+    checkEmailVerifiedNow,
+    resetPasswordAcademic,
+    pendingVerificationEmail,
+    authError,
+    clearAuthError,
+  } = useBoraJunto();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [activeModal, setActiveModal] = useState<
-    null | 'forgot' | 'register' | 'shield'
+    null | 'forgot' | 'register' | 'shield' | 'verify'
   >(null);
-  const [recoverySent, setRecoverySent] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Password recovery state
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryMsg, setRecoveryMsg] = useState<string | null>(null);
+  const [recoveryErr, setRecoveryErr] = useState<string | null>(null);
+
+  // Registration state
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regCourse, setRegCourse] = useState('');
+  const [regCampusId, setRegCampusId] = useState(SALVADOR_CAMPUSES[0].id);
+  const [regDestLabel, setRegDestLabel] = useState('');
+  const [regDestLocation, setRegDestLocation] = useState<GeoLocation | null>(null);
+  const [regClassEnd, setRegClassEnd] = useState('22:30');
+  const [regPhone, setRegPhone] = useState('');
+  const [regLgpd, setRegLgpd] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
+  const [regLoading, setRegLoading] = useState(false);
+
+  // Verification modal feedback
+  const [verifyFeedback, setVerifyFeedback] = useState<string | null>(null);
+  const [checkingVerify, setCheckingVerify] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    clearAuthError();
     const nextErrors: { email?: string; password?: string } = {};
     const trimmedEmail = email.trim();
 
@@ -32,8 +79,8 @@ export const LoginScreen: React.FC = () => {
 
     if (!password.trim()) {
       nextErrors.password = 'Informe sua senha.';
-    } else if (password.trim().length < 4) {
-      nextErrors.password = 'A senha deve ter pelo menos 4 caracteres.';
+    } else if (password.trim().length < 6) {
+      nextErrors.password = 'A senha deve ter pelo menos 6 caracteres.';
     }
 
     if (Object.keys(nextErrors).length > 0) {
@@ -42,14 +89,81 @@ export const LoginScreen: React.FC = () => {
     }
 
     setErrors({});
-    loginSimulated(trimmedEmail);
+    setSubmitting(true);
+    const ok = await loginAcademic(trimmedEmail, password);
+    setSubmitting(false);
+    if (!ok && pendingVerificationEmail) {
+      setActiveModal('verify');
+    }
   };
 
-  const handleDemoFill = () => {
-    setEmail('ana.souza@universidade.edu.br');
-    setPassword('12345678');
-    setErrors({});
-    setActiveModal(null);
+  const handleSignUpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegError(null);
+
+    if (regName.trim().length < 2) {
+      setRegError('Informe seu nome completo.');
+      return;
+    }
+    if (!/^[^@]+@[^@]+\.edu\.br$/i.test(regEmail.trim())) {
+      setRegError('Somente e-mail institucional terminado em .edu.br é aceito.');
+      return;
+    }
+    if (regPassword.length < 6) {
+      setRegError('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    if (regCourse.trim().length < 2) {
+      setRegError('Informe seu curso e turno (ex: Engenharia · Noite).');
+      return;
+    }
+    if (!regLgpd) {
+      setRegError('Aceite os Termos de Uso e Política de Privacidade (LGPD).');
+      return;
+    }
+    if (!regDestLocation || !regDestLabel.trim()) {
+      setRegError('Pesquise e selecione seu destino habitual na lista de sugestões.');
+      return;
+    }
+
+    setRegLoading(true);
+    const res = await signUpAcademic({
+      fullName: regName.trim(),
+      email: regEmail.trim(),
+      password: regPassword,
+      courseInfo: regCourse.trim(),
+      campusId: regCampusId,
+      phone: regPhone.trim(),
+      destinationLabel: regDestLocation.name || regDestLabel.trim(),
+      destinationLat: regDestLocation.lat,
+      destinationLng: regDestLocation.lng,
+      destinationLocation: regDestLocation,
+      classEndTime: regClassEnd,
+      lgpdAccepted: regLgpd,
+    });
+    setRegLoading(false);
+
+    if (!res.ok) {
+      setRegError(res.error || 'Não foi possível concluir o cadastro.');
+      return;
+    }
+    setEmail(regEmail.trim());
+    setPassword(regPassword);
+    setVerifyFeedback('Link de confirmação enviado para o seu e-mail acadêmico.');
+    setActiveModal('verify');
+  };
+
+  const handleResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRecoveryErr(null);
+    setRecoveryMsg(null);
+    const targetEmail = (recoveryEmail || email).trim();
+    const res = await resetPasswordAcademic(targetEmail);
+    if (res.ok) {
+      setRecoveryMsg(`Instruções enviadas para ${targetEmail}. Verifique sua caixa de entrada.`);
+    } else {
+      setRecoveryErr(res.error || 'Erro ao enviar e-mail de redefinição.');
+    }
   };
 
   return (
@@ -100,8 +214,9 @@ export const LoginScreen: React.FC = () => {
                 onChange={(e) => {
                   setEmail(e.target.value);
                   if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+                  if (authError) clearAuthError();
                 }}
-                placeholder="voce@universidade.edu.br"
+                placeholder="voce@ucsal.edu.br"
                 autoComplete="email"
                 className="w-full bg-transparent text-[15px] font-medium text-[#102536] dark:text-white placeholder:text-[#596579] dark:placeholder:text-[#94A3B8] focus:outline-none"
               />
@@ -139,6 +254,7 @@ export const LoginScreen: React.FC = () => {
                 onChange={(e) => {
                   setPassword(e.target.value);
                   if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+                  if (authError) clearAuthError();
                 }}
                 placeholder="••••••••"
                 autoComplete="current-password"
@@ -164,11 +280,13 @@ export const LoginScreen: React.FC = () => {
             )}
           </div>
 
-          <div className="flex justify-end mb-6">
+          <div className="flex justify-end mb-4">
             <button
               type="button"
               onClick={() => {
-                setRecoverySent(false);
+                setRecoveryEmail(email);
+                setRecoveryMsg(null);
+                setRecoveryErr(null);
                 setActiveModal('forgot');
               }}
               className="text-[13.5px] font-bold text-[#C51557] dark:text-[#FF558C] hover:opacity-80 cursor-pointer"
@@ -177,15 +295,33 @@ export const LoginScreen: React.FC = () => {
             </button>
           </div>
 
-          <PrimaryButton type="submit">
-            Entrar com minha conta
+          {authError && (
+            <div className="rounded-[12px] bg-[#FDEAF1] dark:bg-[#3B2034] text-[#C51557] dark:text-[#FF6A9B] px-3.5 py-2.5 text-[12.5px] font-semibold mb-3">
+              {authError}
+              {pendingVerificationEmail && (
+                <button
+                  type="button"
+                  onClick={() => setActiveModal('verify')}
+                  className="block underline font-bold mt-1 cursor-pointer"
+                >
+                  Confirmar e-mail agora
+                </button>
+              )}
+            </div>
+          )}
+
+          <PrimaryButton type="submit" disabled={submitting}>
+            {submitting ? 'Validando acesso...' : 'Entrar com minha conta'}
           </PrimaryButton>
 
           <p className="text-center text-[14.5px] text-[#102536] dark:text-[#E2E8F0] mt-5">
             <span className="font-medium">Primeira vez?</span>{' '}
             <button
               type="button"
-              onClick={() => setActiveModal('register')}
+              onClick={() => {
+                setRegError(null);
+                setActiveModal('register');
+              }}
               className="font-bold hover:underline cursor-pointer"
             >
               Criar conta acadêmica
@@ -208,55 +344,263 @@ export const LoginScreen: React.FC = () => {
 
       <HomeIndicator />
 
-      {/* Provisional Modals */}
+      {/* Password Recovery Modal */}
       <ModalSheet
         open={activeModal === 'forgot'}
         onClose={() => setActiveModal(null)}
         title="Recuperar acesso"
-        subtitle="Interação provisória de protótipo"
+        subtitle="Enviaremos um link oficial para o seu e-mail .edu.br"
       >
-        <p className="text-[14px] leading-[1.5] text-[#596579] dark:text-[#A8B3C7] mb-4">
-          Nesta etapa do protótipo não há envio real de e-mails. Em produção, as instruções serão enviadas para o seu endereço institucional <span className="font-semibold text-[#102536] dark:text-white">.edu.br</span>.
-        </p>
-        {recoverySent ? (
-          <div className="rounded-[14px] bg-[#E5F6EF] dark:bg-[#18392F] text-[#137A59] dark:text-[#66DBB1] px-4 py-3 text-[13.5px] font-semibold mb-4">
-            Simulação concluída: instruções enviadas para {email.trim() || 'voce@universidade.edu.br'}.
+        <form onSubmit={handleResetSubmit} className="space-y-3">
+          <div className="h-[50px] px-4 rounded-[14px] bg-[#EEF2F6] dark:bg-[#282E40] flex items-center gap-3">
+            <Mail className="w-[18px] h-[18px] text-[#596579] dark:text-[#94A3B8] shrink-0" />
+            <input
+              type="email"
+              value={recoveryEmail}
+              onChange={(e) => setRecoveryEmail(e.target.value)}
+              placeholder="voce@ucsal.edu.br"
+              className="w-full bg-transparent text-[14px] font-semibold text-[#102536] dark:text-white focus:outline-none"
+            />
           </div>
-        ) : (
-          <PrimaryButton onClick={() => setRecoverySent(true)} className="mb-3">
-            Simular envio de recuperação
-          </PrimaryButton>
-        )}
-        <button
-          type="button"
-          onClick={() => setActiveModal(null)}
-          className="w-full py-2.5 text-[14px] font-bold text-[#596579] dark:text-[#A8B3C7] cursor-pointer"
-        >
-          Voltar ao login
-        </button>
+
+          {recoveryErr && (
+            <div className="rounded-[12px] bg-[#FDEAF1] dark:bg-[#3B2034] text-[#C51557] dark:text-[#FF6A9B] px-3.5 py-2.5 text-[12.5px] font-semibold">
+              {recoveryErr}
+            </div>
+          )}
+
+          {recoveryMsg && (
+            <div className="rounded-[12px] bg-[#E5F6EF] dark:bg-[#18392F] text-[#137A59] dark:text-[#66DBB1] px-3.5 py-2.5 text-[12.5px] font-semibold">
+              {recoveryMsg}
+            </div>
+          )}
+
+          <PrimaryButton type="submit">Enviar link de redefinição</PrimaryButton>
+        </form>
       </ModalSheet>
 
+      {/* Full Institutional Registration Modal */}
       <ModalSheet
         open={activeModal === 'register'}
         onClose={() => setActiveModal(null)}
         title="Criar conta acadêmica"
-        subtitle="Cadastro ainda não habilitado nesta etapa"
+        subtitle="Acesso exclusivo com e-mail institucional .edu.br"
       >
-        <p className="text-[14px] leading-[1.5] text-[#596579] dark:text-[#A8B3C7] mb-4">
-          O fluxo completo de cadastro com validação de vínculo acadêmico (.edu.br) será implementado na próxima etapa. Para testar a navegação agora, preencha um e-mail institucional ou utilize os dados de demonstração abaixo.
-        </p>
-        <PrimaryButton onClick={handleDemoFill} className="mb-3">
-          Preencher conta de demonstração
+        <form onSubmit={handleSignUpSubmit} className="space-y-3">
+          <div>
+            <label className="block text-[12px] font-bold text-[#596579] dark:text-[#A8B3C7] mb-1">
+              Nome completo
+            </label>
+            <input
+              type="text"
+              value={regName}
+              onChange={(e) => setRegName(e.target.value)}
+              placeholder="Ex: Lucas Santana"
+              className="w-full h-[46px] px-3.5 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[14px] font-medium text-[#102536] dark:text-white focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[12px] font-bold text-[#596579] dark:text-[#A8B3C7] mb-1">
+              E-mail institucional (.edu.br)
+            </label>
+            <input
+              type="email"
+              value={regEmail}
+              onChange={(e) => setRegEmail(e.target.value)}
+              placeholder="nome@ucsal.edu.br"
+              className="w-full h-[46px] px-3.5 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[14px] font-medium text-[#102536] dark:text-white focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="block text-[12px] font-bold text-[#596579] dark:text-[#A8B3C7] mb-1">
+                Senha (mín. 6)
+              </label>
+              <input
+                type="password"
+                value={regPassword}
+                onChange={(e) => setRegPassword(e.target.value)}
+                placeholder="••••••"
+                className="w-full h-[46px] px-3.5 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[14px] text-[#102536] dark:text-white focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-[12px] font-bold text-[#596579] dark:text-[#A8B3C7] mb-1">
+                Término da aula
+              </label>
+              <select
+                value={regClassEnd}
+                onChange={(e) => setRegClassEnd(e.target.value)}
+                className="w-full h-[46px] px-3 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[14px] font-semibold text-[#102536] dark:text-white focus:outline-none"
+              >
+                {CLASS_END_TIME_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[12px] font-bold text-[#596579] dark:text-[#A8B3C7] mb-1">
+              Curso e turno
+            </label>
+            <input
+              type="text"
+              value={regCourse}
+              onChange={(e) => setRegCourse(e.target.value)}
+              placeholder="Ex: Engenharia de Software · Noite"
+              className="w-full h-[46px] px-3.5 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[14px] font-medium text-[#102536] dark:text-white focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[12px] font-bold text-[#596579] dark:text-[#A8B3C7] mb-1">
+              Campus de origem (Salvador)
+            </label>
+            <select
+              value={regCampusId}
+              onChange={(e) => setRegCampusId(e.target.value)}
+              className="w-full h-[46px] px-3 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[13.5px] font-semibold text-[#102536] dark:text-white focus:outline-none"
+            >
+              {SALVADOR_CAMPUSES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <LocationSearchInput
+              label="Destino habitual padrão"
+              placeholder="Pesquise bairro, rua, ponto de referência..."
+              value={regDestLabel}
+              selectedLocation={regDestLocation}
+              onTextChange={(val) => {
+                setRegDestLabel(val);
+                if (
+                  regDestLocation &&
+                  regDestLocation.name !== val &&
+                  regDestLocation.label !== val
+                ) {
+                  setRegDestLocation(null);
+                }
+              }}
+              onSelectLocation={(loc) => {
+                setRegDestLocation(loc);
+                setRegDestLabel(loc.name || loc.label);
+              }}
+              onClear={() => {
+                setRegDestLabel('');
+                setRegDestLocation(null);
+              }}
+              required
+              helperText="Sugestões dinâmicas via OpenRouteService para Salvador e RMS."
+            />
+          </div>
+
+          <div>
+            <label className="block text-[12px] font-bold text-[#596579] dark:text-[#A8B3C7] mb-1">
+              Telefone (opcional · uso privado)
+            </label>
+            <input
+              type="tel"
+              value={regPhone}
+              onChange={(e) => setRegPhone(e.target.value)}
+              placeholder="(71) 99999-0000"
+              className="w-full h-[46px] px-3.5 rounded-[12px] bg-[#EEF2F6] dark:bg-[#282E40] text-[14px] font-medium text-[#102536] dark:text-white focus:outline-none"
+            />
+          </div>
+
+          <label className="flex items-start gap-2.5 text-[12px] leading-[1.45] text-[#596579] dark:text-[#A8B3C7] pt-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={regLgpd}
+              onChange={(e) => setRegLgpd(e.target.checked)}
+              className="mt-0.5 rounded accent-[#00D2FF]"
+            />
+            <span>
+              Concordo com os Termos de Uso e Política de Privacidade (LGPD). Comprovantes Pix são excluídos automaticamente em 7 dias (RNF01) e minha localização é compartilhada apenas durante a corrida ativa.
+            </span>
+          </label>
+
+          {regError && (
+            <div className="rounded-[12px] bg-[#FDEAF1] dark:bg-[#3B2034] text-[#C51557] dark:text-[#FF6A9B] px-3.5 py-2.5 text-[12.5px] font-semibold">
+              {regError}
+            </div>
+          )}
+
+          <PrimaryButton type="submit" disabled={regLoading}>
+            {regLoading ? 'Criando conta...' : 'Cadastrar com e-mail .edu.br'}
+          </PrimaryButton>
+        </form>
+      </ModalSheet>
+
+      {/* Email Verification Pending Modal */}
+      <ModalSheet
+        open={activeModal === 'verify'}
+        onClose={() => setActiveModal(null)}
+        title="Confirme seu e-mail .edu.br"
+        subtitle="Verificação obrigatória para acessar grupos"
+      >
+        <div className="rounded-[16px] bg-[#E1F7FC] dark:bg-[#133342] p-4 mb-4">
+          <p className="text-[13.5px] leading-[1.5] text-[#102536] dark:text-white">
+            Enviamos um link de verificação para{' '}
+            <span className="font-bold">
+              {pendingVerificationEmail || email}
+            </span>
+            . Abra o link no seu e-mail institucional e depois toque abaixo.
+          </p>
+        </div>
+
+        {verifyFeedback && (
+          <div className="rounded-[12px] bg-[#E5F6EF] dark:bg-[#18392F] text-[#137A59] dark:text-[#66DBB1] px-3.5 py-2.5 text-[12.5px] font-semibold mb-3 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{verifyFeedback}</span>
+          </div>
+        )}
+
+        {authError && (
+          <div className="rounded-[12px] bg-[#FDEAF1] dark:bg-[#3B2034] text-[#C51557] dark:text-[#FF6A9B] px-3.5 py-2.5 text-[12.5px] font-semibold mb-3">
+            {authError}
+          </div>
+        )}
+
+        <PrimaryButton
+          disabled={checkingVerify}
+          onClick={async () => {
+            setVerifyFeedback(null);
+            clearAuthError();
+            setCheckingVerify(true);
+            const verified = await checkEmailVerifiedNow();
+            setCheckingVerify(false);
+            if (verified) {
+              setActiveModal(null);
+            }
+          }}
+          className="mb-3"
+        >
+          {checkingVerify ? 'Verificando acesso...' : 'Já confirmei meu e-mail'}
         </PrimaryButton>
+
         <button
           type="button"
-          onClick={() => setActiveModal(null)}
-          className="w-full py-2.5 text-[14px] font-bold text-[#596579] dark:text-[#A8B3C7] cursor-pointer"
+          onClick={async () => {
+            const msg = await resendVerificationEmail();
+            setVerifyFeedback(msg);
+          }}
+          className="w-full py-2.5 text-[13.5px] font-bold text-[#102536] dark:text-white flex items-center justify-center gap-2 cursor-pointer"
         >
-          Fechar
+          <RefreshCw className="w-4 h-4" />
+          Reenviar e-mail de verificação
         </button>
       </ModalSheet>
 
+      {/* Academic Verification Shield Info */}
       <ModalSheet
         open={activeModal === 'shield'}
         onClose={() => setActiveModal(null)}
@@ -264,7 +608,11 @@ export const LoginScreen: React.FC = () => {
         subtitle="Comunidade exclusiva para estudantes"
       >
         <p className="text-[14px] leading-[1.5] text-[#596579] dark:text-[#A8B3C7] mb-4">
-          O acesso ao BoraJunto exige vínculo institucional com e-mail <span className="font-semibold text-[#102536] dark:text-white">.edu.br</span> para garantir que todos os integrantes pertençam à comunidade universitária.
+          O acesso ao BoraJunto exige vínculo institucional com e-mail{' '}
+          <span className="font-semibold text-[#102536] dark:text-white">
+            .edu.br
+          </span>{' '}
+          devidamente verificado (RF01) para garantir segurança entre estudantes.
         </p>
         <PrimaryButton onClick={() => setActiveModal(null)}>
           Entendi

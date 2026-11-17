@@ -29,3 +29,12 @@
 .dark .figma-nav-shadow {
   box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.35);
 }
+
+.dark .borajunto-leaflet-map .leaflet-tile-pane {
+  filter: brightness(0.76) invert(1) contrast(1.08) hue-rotate(195deg) saturate(0.45);
+}
+
+.borajunto-leaflet-map .leaflet-control-attribution {
+  display: none;
+}
+

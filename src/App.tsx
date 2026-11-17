@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, ShieldCheck, Sun } from 'lucide-react';
+import { AdminModerationView } from './components/AdminModerationView';
 import { BoraJuntoProvider, useBoraJunto } from './context/BoraJuntoContext';
 import { GroupDetailScreen } from './screens/GroupDetailScreen';
 import { GroupsListScreen } from './screens/GroupsListScreen';
@@ -21,7 +22,15 @@ const SCREEN_LIST: Array<{ id: ScreenId; code: string; label: string }> = [
 ];
 
 function AppShell() {
-  const { currentScreen, jumpToScreen, theme, setTheme } = useBoraJunto();
+  const {
+    currentScreen,
+    jumpToScreen,
+    theme,
+    setTheme,
+    isAdmin,
+    showAdminView,
+    setShowAdminView,
+  } = useBoraJunto();
 
   useEffect(() => {
     const root = document.documentElement;
@@ -72,12 +81,15 @@ function AppShell() {
             className="flex items-center gap-1 overflow-x-auto max-w-full py-0.5"
           >
             {SCREEN_LIST.map((item) => {
-              const active = currentScreen === item.id;
+              const active = !showAdminView && currentScreen === item.id;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => jumpToScreen(item.id)}
+                  onClick={() => {
+                    setShowAdminView(false);
+                    jumpToScreen(item.id);
+                  }}
                   className={`px-2.5 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
                     active
                       ? 'bg-[#00D2FF] text-[#102536]'
@@ -88,6 +100,20 @@ function AppShell() {
                 </button>
               );
             })}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setShowAdminView(!showAdminView)}
+                className={`px-2.5 py-1.5 rounded-lg text-[12px] font-bold whitespace-nowrap flex items-center gap-1 cursor-pointer ${
+                  showAdminView
+                    ? 'bg-[#C51557] text-white'
+                    : 'bg-[#FDEAF1] dark:bg-[#3B2034] text-[#C51557] dark:text-[#FF6A9B]'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Moderação
+              </button>
+            )}
           </nav>
 
           <div className="flex items-center gap-1 p-1 rounded-lg bg-[#EEF2F6] dark:bg-[#1C2130] shrink-0">
@@ -119,12 +145,18 @@ function AppShell() {
         </div>
       </header>
 
-      {/* Centered Mobile Prototype Frame (390x844 exact Figma viewport) */}
-      <main className="flex-1 flex items-center justify-center p-0 sm:p-6">
-        <div className="relative w-full max-w-[390px] h-[844px] max-h-[calc(100vh-58px)] sm:max-h-[844px] sm:rounded-[40px] overflow-hidden shadow-[0_24px_60px_rgba(16,37,54,0.16)] dark:shadow-[0_24px_70px_rgba(0,0,0,0.65)] sm:border-[6px] sm:border-[#FFFFFF] dark:sm:border-[#1E2230] bg-[#F8F9FA] dark:bg-[#12151E]">
-          {renderScreen()}
-        </div>
-      </main>
+      {showAdminView && isAdmin ? (
+        <main className="flex-1 flex flex-col">
+          <AdminModerationView />
+        </main>
+      ) : (
+        /* Centered Mobile Prototype Frame (390x844 exact Figma viewport) */
+        <main className="flex-1 flex items-center justify-center p-0 sm:p-6">
+          <div className="relative w-full max-w-[390px] h-[844px] max-h-[calc(100vh-58px)] sm:max-h-[844px] sm:rounded-[40px] overflow-hidden shadow-[0_24px_60px_rgba(16,37,54,0.16)] dark:shadow-[0_24px_70px_rgba(0,0,0,0.65)] sm:border-[6px] sm:border-[#FFFFFF] dark:sm:border-[#1E2230] bg-[#F8F9FA] dark:bg-[#12151E]">
+            {renderScreen()}
+          </div>
+        </main>
+      )}
     </div>
   );
 }

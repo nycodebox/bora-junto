@@ -1,0 +1,238 @@
+{
+  "entities": {
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public academic profile visible to campus peers without exposing PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "displayName": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "courseInfo": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "campusId": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "moderationStatus": { "type": "string", "enum": ["active", "temporary_block", "permanent_block"] },
+        "moderationReason": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "courseInfo", "campusId", "moderationStatus", "createdAt", "updatedAt"]
+    },
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Protected PII for the student account (email, phone, destination preferences).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "email": { "type": "string", "format": "email", "maxLength": 160, "pattern": "^[^@]+@[^@]+\\.edu\\.br$" },
+        "phone": { "type": "string", "maxLength": 24 },
+        "defaultDestinationLabel": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "defaultDestinationLat": { "type": "number" },
+        "defaultDestinationLng": { "type": "number" },
+        "defaultClassEndTime": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+        "lgpdConsentAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "defaultDestinationLabel", "defaultDestinationLat", "defaultDestinationLng", "defaultClassEndTime", "lgpdConsentAt", "updatedAt"]
+    },
+    "Campus": {
+      "title": "Campus",
+      "description": "University campus origin and geofence perimeter.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "shortName": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "headerLabel": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "city": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "centerLat": { "type": "number" },
+        "centerLng": { "type": "number" },
+        "geofenceRadiusMeters": { "type": "number" }
+      },
+      "required": ["id", "name", "shortName", "headerLabel", "city", "centerLat", "centerLng", "geofenceRadiusMeters"]
+    },
+    "RideGroup": {
+      "title": "RideGroup",
+      "description": "Shared campus departure group.",
+      "type": "object",
+      "properties": {
+        "campusId": { "type": "string", "minLength": 2, "maxLength": 64 },
+        "leaderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "mode": { "type": "string", "enum": ["bando", "racha", "carona"] },
+        "status": { "type": "string", "enum": ["open", "full", "in_progress", "completed", "cancelled"] },
+        "title": { "type": "string", "minLength": 2, "maxLength": 60 },
+        "departureTime": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+        "estimatedArrival": { "type": "string", "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$" },
+        "meetingPoint": { "type": "string", "minLength": 2, "maxLength": 100 },
+        "meetingLat": { "type": "number" },
+        "meetingLng": { "type": "number" },
+        "destinationLabel": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "destinationLat": { "type": "number" },
+        "destinationLng": { "type": "number" },
+        "maxSpots": { "type": "number" },
+        "memberIds": { "type": "array" },
+        "requiresPayment": { "type": "boolean" },
+        "totalCost": { "type": "number" },
+        "recalcVersion": { "type": "number" },
+        "scheduledAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["campusId", "leaderId", "mode", "status", "title", "departureTime", "estimatedArrival", "meetingPoint", "meetingLat", "meetingLng", "destinationLabel", "destinationLat", "destinationLng", "maxSpots", "memberIds", "requiresPayment", "totalCost", "recalcVersion", "scheduledAtMs", "createdAt", "updatedAt"]
+    },
+    "GroupMember": {
+      "title": "GroupMember",
+      "description": "Participant record inside a group.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "courseInfo": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["leader", "member"] },
+        "acceptedRecalcVersion": { "type": "number" },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "courseInfo", "role", "acceptedRecalcVersion", "joinedAt"]
+    },
+    "GroupPayment": {
+      "title": "GroupPayment",
+      "description": "Split calculation, PIX copia-e-cola metadata, and receipt confirmation per member.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "leaderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "amountDue": { "type": "number" },
+        "pixPayload": { "type": "string", "maxLength": 600 },
+        "confirmationMethod": { "type": "string", "enum": ["pending", "receipt_upload", "visual_leader"] },
+        "receiptStoragePath": { "type": "string", "maxLength": 300 },
+        "receiptPreviewDataUrl": { "type": "string", "maxLength": 200000 },
+        "receiptExpiresAt": { "type": "string", "format": "date-time" },
+        "paymentConfirmed": { "type": "boolean" },
+        "confirmedByLeaderId": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "leaderId", "amountDue", "pixPayload", "confirmationMethod", "paymentConfirmed", "updatedAt"]
+    },
+    "LiveLocation": {
+      "title": "LiveLocation",
+      "description": "Ephemeral real-time GPS coordinates shared only during active trips.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "sharingEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "lat", "lng", "sharingEnabled", "updatedAt"]
+    },
+    "GroupMessage": {
+      "title": "GroupMessage",
+      "description": "Chat message inside an active ride group.",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "senderName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "senderName", "text", "createdAt"]
+    },
+    "Rating": {
+      "title": "Rating",
+      "description": "Post-trip evaluation submitted by a group participant.",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "fromUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "score": { "type": "number" },
+        "safetyOk": { "type": "boolean" },
+        "comment": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["groupId", "fromUid", "score", "safetyOk", "createdAt"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Safety incident report and moderation queue entry.",
+      "type": "object",
+      "properties": {
+        "groupId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "reporterUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "reporterName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "reportedUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "reportedName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "category": { "type": "string", "enum": ["inappropriate_behavior", "immediate_risk", "fraud", "rule_violation"] },
+        "priority": { "type": "string", "enum": ["normal", "immediate_risk"] },
+        "description": { "type": "string", "minLength": 5, "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["pendente", "em_analise", "resolvida", "arquivada"] },
+        "resolutionAction": { "type": "string", "enum": ["none", "warning", "temporary_block", "permanent_block", "overturned"] },
+        "moderatorNotes": { "type": "string", "maxLength": 1000 },
+        "contestNote": { "type": "string", "maxLength": 1000 },
+        "slaDeadlineAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["groupId", "reporterUid", "reporterName", "reportedUid", "reportedName", "category", "priority", "description", "status", "slaDeadlineAt", "createdAt", "updatedAt"]
+    },
+    "ModerationLog": {
+      "title": "ModerationLog",
+      "description": "Append-only audit trail for administrative moderation actions.",
+      "type": "object",
+      "properties": {
+        "reportId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "moderatorUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "moderatorEmail": { "type": "string", "maxLength": 160 },
+        "previousStatus": { "type": "string", "maxLength": 40 },
+        "newStatus": { "type": "string", "maxLength": 40 },
+        "actionTaken": { "type": "string", "minLength": 2, "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["reportId", "moderatorUid", "moderatorEmail", "previousStatus", "newStatus", "actionTaken", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublic" },
+      "description": "Public academic summary for verified students."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivate" },
+      "description": "Private PII isolated from non-owners."
+    },
+    "/campuses/{campusId}": {
+      "schema": { "$ref": "#/entities/Campus" },
+      "description": "Salvador university campuses and geofence definitions."
+    },
+    "/groups/{groupId}": {
+      "schema": { "$ref": "#/entities/RideGroup" },
+      "description": "Shared ride/walk groups with Haversine destination coordinates."
+    },
+    "/groups/{groupId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/GroupMember" },
+      "description": "Participants belonging to a ride group."
+    },
+    "/groups/{groupId}/payments/{memberId}": {
+      "schema": { "$ref": "#/entities/GroupPayment" },
+      "description": "PIX copia-e-cola split and manual/receipt confirmation state."
+    },
+    "/groups/{groupId}/liveLocations/{memberId}": {
+      "schema": { "$ref": "#/entities/LiveLocation" },
+      "description": "Real-time GPS sharing limited to active members during in_progress trips."
+    },
+    "/groups/{groupId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/GroupMessage" },
+      "description": "Group chat messages restricted to group members."
+    },
+    "/ratings/{ratingId}": {
+      "schema": { "$ref": "#/entities/Rating" },
+      "description": "Post-trip safety and experience evaluations."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/Report" },
+      "description": "Safety reports for moderation review within 24 business hours."
+    },
+    "/moderationLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ModerationLog" },
+      "description": "Append-only audit trail for administrative moderation."
+    }
+  }
+}
